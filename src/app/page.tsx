@@ -1,4 +1,5 @@
 import Link from "next/link";
+import StartTrialButton from "./components/StartTrialButton";
 
 const features = [
   "Public booking page",
@@ -49,8 +50,8 @@ export default function HomePage() {
     <main className="min-h-screen bg-black text-white">
       <section className="mx-auto max-w-7xl px-6 py-8">
         <nav className="flex items-center justify-between">
-          <Link href="/" className="text-2xl font-black">
-            Appoint<span className="text-purple-400">Eaze</span>
+          <Link href="/" className="flex items-center gap-3">
+            <img src="/Logo.png" alt="AppointEaze" className="h-10 w-auto" />
           </Link>
 
           <div className="hidden items-center gap-6 text-sm text-zinc-300 md:flex">
@@ -99,12 +100,9 @@ export default function HomePage() {
             </p>
 
             <div className="mt-8 flex flex-col gap-4 sm:flex-row">
-              <Link
-                href="/dashboard"
-                className="rounded-full bg-purple-500 px-8 py-4 text-center font-black hover:bg-purple-400"
-              >
+              <StartTrialButton className="rounded-full bg-purple-500 px-8 py-4 text-center font-black hover:bg-purple-400 disabled:opacity-60">
                 Start Free Trial
-              </Link>
+              </StartTrialButton>
 
               <Link
                 href="/elite-barber-studio"
@@ -278,12 +276,9 @@ export default function HomePage() {
               ))}
             </div>
 
-            <Link
-              href="/dashboard"
-              className="mt-8 block rounded-xl bg-purple-500 py-4 text-center text-lg font-black hover:bg-purple-400"
-            >
+            <StartTrialButton className="mt-8 block w-full rounded-xl bg-purple-500 py-4 text-center text-lg font-black hover:bg-purple-400 disabled:opacity-60">
               Start 14-Day Free Trial
-            </Link>
+            </StartTrialButton>
 
             <p className="mt-4 text-center text-xs text-zinc-500">
               Later, AppointEaze may add higher plans for SMS alerts, multiple
@@ -304,12 +299,9 @@ export default function HomePage() {
           </p>
 
           <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
-            <Link
-              href="/dashboard"
-              className="rounded-full bg-purple-500 px-8 py-4 font-black hover:bg-purple-400"
-            >
+            <StartTrialButton className="rounded-full bg-purple-500 px-8 py-4 font-black hover:bg-purple-400 disabled:opacity-60">
               Start Free Trial
-            </Link>
+            </StartTrialButton>
 
             <Link
               href="/elite-barber-studio"
@@ -323,9 +315,9 @@ export default function HomePage() {
 
       <footer className="border-t border-white/10 px-6 py-8">
         <div className="mx-auto flex max-w-7xl flex-col justify-between gap-4 text-sm text-zinc-500 md:flex-row">
-          <p>
-            Appoint<span className="text-purple-400">Eaze</span>
-          </p>
+          <div className="flex items-center gap-3">
+            <img src="/Logo.png" alt="AppointEaze" className="h-8 w-auto" />
+          </div>
           <p>14-day free trial • $9.99/month after trial</p>
         </div>
       </footer>
