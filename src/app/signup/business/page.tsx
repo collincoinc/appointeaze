@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
@@ -15,6 +15,22 @@ function makeSlug(value: string) {
 }
 
 export default function BusinessSignupPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8">
+            <p className="text-zinc-300">Loading business setup...</p>
+          </div>
+        </main>
+      }
+    >
+      <BusinessSignupContent />
+    </Suspense>
+  );
+}
+
+function BusinessSignupContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id") || "";
 
@@ -199,11 +215,15 @@ export default function BusinessSignupPage() {
               label="Booking page URL"
               value={customSlug}
               onChange={setCustomSlug}
-              placeholder={businessName ? makeSlug(businessName) : "your-business-name"}
+              placeholder={
+                businessName ? makeSlug(businessName) : "your-business-name"
+              }
             />
 
             <div className="rounded-2xl border border-white/10 bg-black p-4">
-              <p className="text-sm text-zinc-400">Your booking page will be:</p>
+              <p className="text-sm text-zinc-400">
+                Your booking page will be:
+              </p>
               <p className="mt-2 font-mono text-sm text-purple-300">
                 appointeazebooking.com/{suggestedSlug || "your-business-name"}
               </p>
