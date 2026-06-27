@@ -10,23 +10,47 @@ const stripePriceId =
 const appUrl =
   process.env.NEXT_PUBLIC_APP_URL || "https://www.appointeazebooking.com";
 
-const stripe = new Stripe(stripeSecretKey);
-
 export async function POST() {
   try {
     if (!stripeSecretKey) {
       return NextResponse.json(
-        { error: "Missing STRIPE_SECRET_KEY." },
+        {
+          error: "Missing STRIPE_SECRET_KEY in Vercel environment variables.",
+        },
+        { status: 500 }
+      );
+    }
+
+    if (!stripeSecretKey.startsWith("sk_live_")) {
+      return NextResponse.json(
+        {
+          error:
+            "STRIPE_SECRET_KEY exists, but it does not start with sk_live_. Check the Vercel value.",
+        },
         { status: 500 }
       );
     }
 
     if (!stripePriceId) {
       return NextResponse.json(
-        { error: "Missing STRIPE_PRICE_ID." },
+        {
+          error: "Missing STRIPE_PRICE_ID in Vercel environment variables.",
+        },
         { status: 500 }
       );
     }
+
+    if (!stripePriceId.startsWith("price_")) {
+      return NextResponse.json(
+        {
+          error:
+            "STRIPE_PRICE_ID exists, but it does not start with price_. Check the Vercel value.",
+        },
+        { status: 500 }
+      );
+    }
+
+    const stripe = new Stripe(stripeSecretKey);
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
@@ -58,12 +82,14 @@ export async function POST() {
     return NextResponse.json({
       url: session.url,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error("Stripe checkout error:", error);
 
     return NextResponse.json(
       {
-        error: "Could not create Stripe Checkout session.",
+        error:
+          error?.message ||
+          "Could not create Stripe Checkout session. Check Vercel function logs.",
       },
       { status: 500 }
     );
