@@ -70,7 +70,6 @@ export async function POST() {
       payment_method_collection: "always",
       allow_promotion_codes: true,
       billing_address_collection: "auto",
-      customer_creation: "always",
       success_url: `${appUrl}/signup/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${appUrl}/?checkout=cancelled`,
       metadata: {
