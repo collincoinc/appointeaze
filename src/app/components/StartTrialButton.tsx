@@ -28,9 +28,14 @@ export default function StartTrialButton({
       }
 
       window.location.href = data.url;
-    } catch (checkoutError) {
+    } catch (checkoutError: any) {
       console.error("Checkout start error:", checkoutError);
-      setError("Could not open checkout. Please try again.");
+
+      setError(
+        checkoutError?.message ||
+          "Could not open checkout. Please try again."
+      );
+
       setLoading(false);
     }
   }
@@ -41,7 +46,11 @@ export default function StartTrialButton({
         {loading ? "Opening Checkout..." : children}
       </button>
 
-      {error && <p className="mt-2 text-sm text-red-300">{error}</p>}
+      {error && (
+        <p className="mt-2 max-w-xl text-sm font-semibold text-red-300">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
