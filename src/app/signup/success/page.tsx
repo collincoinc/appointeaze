@@ -1,6 +1,18 @@
 import Link from "next/link";
 
-export default function SignupSuccessPage() {
+export default function SignupSuccessPage({
+  searchParams,
+}: {
+  searchParams?: {
+    session_id?: string;
+  };
+}) {
+  const sessionId = searchParams?.session_id || "";
+
+  const businessSetupLink = sessionId
+    ? `/signup/business?session_id=${encodeURIComponent(sessionId)}`
+    : "/signup/business";
+
   return (
     <main className="min-h-screen bg-black px-6 py-12 text-white">
       <section className="mx-auto flex max-w-3xl flex-col items-center justify-center text-center">
@@ -29,25 +41,24 @@ export default function SignupSuccessPage() {
             <h2 className="text-xl font-bold">Next step</h2>
 
             <p className="mt-2 text-sm leading-6 text-zinc-400">
-              Set up your business profile, services, team members, booking
-              rules, and public booking page. Your booking page can then be
-              shared with customers.
+              Create your business profile. This gives you a public booking page
+              like appointeazebooking.com/your-business-name.
             </p>
           </div>
 
           <div className="mt-8 flex flex-col justify-center gap-4 sm:flex-row">
             <Link
-              href="/dashboard"
+              href={businessSetupLink}
               className="rounded-full bg-purple-500 px-8 py-4 text-center font-black hover:bg-purple-400"
             >
-              Go to Dashboard
+              Create My Booking Page
             </Link>
 
             <Link
-              href="/dashboard/business-profile"
+              href="/dashboard"
               className="rounded-full border border-white/10 px-8 py-4 text-center font-black hover:bg-white/10"
             >
-              Set Up Business Profile
+              Go to Dashboard
             </Link>
           </div>
 
