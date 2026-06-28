@@ -25,8 +25,8 @@ function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const rawNext = searchParams.get("next") || "/dashboard";
-  const next = rawNext.startsWith("/") ? rawNext : "/dashboard";
+  const rawNext = searchParams.get("next") || "";
+  const next = rawNext.startsWith("/") ? rawNext : "";
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -61,7 +61,53 @@ function LoginContent() {
       return;
     }
 
-    router.push(next);
+    if (next) {
+      router.push(next);
+      router.refresh();
+      return;
+    }
+
+    await routeAfterLogin();
+  }
+
+  async function routeAfterLogin() {
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !userData.user) {
+      setError("Logged in, but could not load your account.");
+      setLoading(false);
+      return;
+    }
+
+    const userId = userData.user.id;
+
+    const { data: ownedBusiness } = await supabase
+      .from("businesses")
+      .select("id")
+      .eq("owner_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (ownedBusiness) {
+      router.push("/dashboard");
+      router.refresh();
+      return;
+    }
+
+    const { data: teamRecord } = await supabase
+      .from("team_members")
+      .select("id")
+      .eq("auth_user_id", userId)
+      .limit(1)
+      .maybeSingle();
+
+    if (teamRecord) {
+      router.push("/team-dashboard");
+      router.refresh();
+      return;
+    }
+
+    router.push("/signup/business");
     router.refresh();
   }
 
@@ -85,8 +131,7 @@ function LoginContent() {
           <h1 className="text-4xl font-black">Log in.</h1>
 
           <p className="mt-3 text-zinc-300">
-            Access your AppointEaze dashboard, services, appointments, team, and
-            booking page.
+            Business owners and invited team members can log in here.
           </p>
 
           <div className="mt-8 grid gap-5">
@@ -122,6 +167,7 @@ function LoginContent() {
             )}
 
             <button
+              type="button"
               onClick={logIn}
               disabled={loading}
               className="rounded-xl bg-purple-500 py-4 text-lg font-black hover:bg-purple-400 disabled:opacity-60"
@@ -131,10 +177,15 @@ function LoginContent() {
           </div>
 
           <p className="mt-6 text-center text-sm text-zinc-400">
-            Need an account?{" "}
+            Starting a business account?{" "}
             <Link href="/signup" className="font-bold text-purple-300">
               Create one
             </Link>
+          </p>
+
+          <p className="mt-3 text-center text-xs text-zinc-500">
+            Invited team members should use the invite link first, then log in
+            here after accepting.
           </p>
         </div>
       </section>
