@@ -1,6 +1,14 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import DashboardSidebar from "../components/DashboardSidebar";
 import { supabase } from "../lib/supabaseClient";
+
+type CurrentUser = {
+  id: string;
+  email: string | null;
+};
 
 type Business = {
   id: string;
@@ -49,54 +57,34 @@ type Notification = {
   created_at: string;
 };
 
-export default async function DashboardPage() {
-  const { data: business } = await supabase
-    .from("businesses")
-    .select("id, name, slug, trial_days_left, plan_status, team_login_limit")
-    .eq("slug", "elite-barber-studio")
-    .maybeSingle<Business>();
+export default function DashboardPage() {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [checkingUser, setCheckingUser] = useState(true);
 
-  const businessId = business?.id;
+  const [businesses, setBusinesses] = useState<Business[]>([]);
+  const [selectedBusinessId, setSelectedBusinessId] = useState("");
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [services, setServices] = useState<Service[]>([]);
+  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
-  const { data: appointmentsData } = businessId
-    ? await supabase
-        .from("appointments")
-        .select("*")
-        .eq("business_id", businessId)
-        .order("created_at", { ascending: false })
-        .limit(8)
-    : { data: [] };
+  const [loading, setLoading] = useState(true);
+  const [dashboardLoading, setDashboardLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const { data: servicesData } = businessId
-    ? await supabase
-        .from("services")
-        .select("id, name, price")
-        .eq("business_id", businessId)
-    : { data: [] };
+  const selectedBusiness = useMemo(() => {
+    return (
+      businesses.find((business) => business.id === selectedBusinessId) || null
+    );
+  }, [businesses, selectedBusinessId]);
 
-  const { data: teamData } = businessId
-    ? await supabase
-        .from("team_members")
-        .select("id, name")
-        .eq("business_id", businessId)
-    : { data: [] };
+  const serviceMap = useMemo(() => {
+    return new Map(services.map((service) => [service.id, service]));
+  }, [services]);
 
-  const { data: notificationsData } = businessId
-    ? await supabase
-        .from("notifications")
-        .select("*")
-        .eq("business_id", businessId)
-        .order("created_at", { ascending: false })
-        .limit(6)
-    : { data: [] };
-
-  const appointments = (appointmentsData || []) as Appointment[];
-  const services = (servicesData || []) as Service[];
-  const teamMembers = (teamData || []) as TeamMember[];
-  const notifications = (notificationsData || []) as Notification[];
-
-  const serviceMap = new Map(services.map((service) => [service.id, service]));
-  const teamMap = new Map(teamMembers.map((person) => [person.id, person]));
+  const teamMap = useMemo(() => {
+    return new Map(teamMembers.map((person) => [person.id, person]));
+  }, [teamMembers]);
 
   const upcomingAppointments = appointments.filter(
     (appointment) => appointment.status !== "Cancelled"
@@ -126,6 +114,192 @@ export default async function DashboardPage() {
     return total + numericValue;
   }, 0);
 
+  useEffect(() => {
+    loadCurrentUserAndBusinesses();
+  }, []);
+
+  useEffect(() => {
+    if (selectedBusinessId) {
+      loadDashboardData(selectedBusinessId);
+      localStorage.setItem("appointeaze_selected_business_id", selectedBusinessId);
+    }
+  }, [selectedBusinessId]);
+
+  async function loadCurrentUserAndBusinesses() {
+    setCheckingUser(true);
+    setLoading(true);
+    setError("");
+
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !userData.user) {
+      setCurrentUser(null);
+      setCheckingUser(false);
+      setLoading(false);
+      return;
+    }
+
+    const user = {
+      id: userData.user.id,
+      email: userData.user.email || null,
+    };
+
+    setCurrentUser(user);
+    setCheckingUser(false);
+
+    await loadBusinesses(user.id);
+  }
+
+  async function loadBusinesses(ownerId: string) {
+    setLoading(true);
+    setError("");
+
+    const { data, error: businessError } = await supabase
+      .from("businesses")
+      .select("id, name, slug, trial_days_left, plan_status, team_login_limit")
+      .eq("owner_id", ownerId)
+      .order("created_at", { ascending: false });
+
+    if (businessError) {
+      console.error("Business load error:", businessError);
+      setError(businessError.message || "Could not load businesses.");
+      setLoading(false);
+      return;
+    }
+
+    const loadedBusinesses = (data || []) as Business[];
+    setBusinesses(loadedBusinesses);
+
+    const savedBusinessId = localStorage.getItem(
+      "appointeaze_selected_business_id"
+    );
+
+    const savedStillExists = loadedBusinesses.some(
+      (business) => business.id === savedBusinessId
+    );
+
+    if (savedBusinessId && savedStillExists) {
+      setSelectedBusinessId(savedBusinessId);
+    } else if (loadedBusinesses.length > 0) {
+      setSelectedBusinessId(loadedBusinesses[0].id);
+    } else {
+      setSelectedBusinessId("");
+      setAppointments([]);
+      setServices([]);
+      setTeamMembers([]);
+      setNotifications([]);
+    }
+
+    setLoading(false);
+  }
+
+  async function loadDashboardData(businessId: string) {
+    setDashboardLoading(true);
+    setError("");
+
+    const [
+      appointmentsResult,
+      servicesResult,
+      teamResult,
+      notificationsResult,
+    ] = await Promise.all([
+      supabase
+        .from("appointments")
+        .select("*")
+        .eq("business_id", businessId)
+        .order("created_at", { ascending: false })
+        .limit(8),
+      supabase
+        .from("services")
+        .select("id, name, price")
+        .eq("business_id", businessId),
+      supabase
+        .from("team_members")
+        .select("id, name")
+        .eq("business_id", businessId),
+      supabase
+        .from("notifications")
+        .select("*")
+        .eq("business_id", businessId)
+        .order("created_at", { ascending: false })
+        .limit(6),
+    ]);
+
+    if (appointmentsResult.error) {
+      console.error("Appointments load error:", appointmentsResult.error);
+      setError(appointmentsResult.error.message || "Could not load appointments.");
+    }
+
+    if (servicesResult.error) {
+      console.error("Services load error:", servicesResult.error);
+      setError(servicesResult.error.message || "Could not load services.");
+    }
+
+    if (teamResult.error) {
+      console.error("Team load error:", teamResult.error);
+      setError(teamResult.error.message || "Could not load team members.");
+    }
+
+    if (notificationsResult.error) {
+      console.error("Notifications load error:", notificationsResult.error);
+      setError(
+        notificationsResult.error.message || "Could not load notifications."
+      );
+    }
+
+    setAppointments((appointmentsResult.data || []) as Appointment[]);
+    setServices((servicesResult.data || []) as Service[]);
+    setTeamMembers((teamResult.data || []) as TeamMember[]);
+    setNotifications((notificationsResult.data || []) as Notification[]);
+
+    setDashboardLoading(false);
+  }
+
+  if (checkingUser) {
+    return (
+      <main className="min-h-screen bg-black text-white">
+        <div className="flex">
+          <DashboardSidebar active="Dashboard" />
+
+          <section className="flex-1 p-6 lg:p-10">
+            <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+              <p className="text-zinc-300">Checking account...</p>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <main className="min-h-screen bg-black text-white">
+        <div className="flex">
+          <DashboardSidebar active="Dashboard" />
+
+          <section className="flex-1 p-6 lg:p-10">
+            <div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-6">
+              <h1 className="text-3xl font-black text-yellow-200">
+                Log in required
+              </h1>
+
+              <p className="mt-2 text-zinc-300">
+                Please log in before viewing your AppointEaze dashboard.
+              </p>
+
+              <Link
+                href="/login?next=/dashboard"
+                className="mt-5 inline-flex rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400"
+              >
+                Log In
+              </Link>
+            </div>
+          </section>
+        </div>
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-screen bg-black text-white">
       <div className="flex">
@@ -135,22 +309,30 @@ export default async function DashboardPage() {
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
               <p className="text-sm text-purple-300">Dashboard</p>
+
               <h1 className="text-4xl font-black">
-                {business?.name || "AppointEaze Dashboard"}
+                {selectedBusiness?.name || "AppointEaze Dashboard"}
               </h1>
+
               <p className="mt-2 max-w-3xl text-zinc-400">
                 View bookings, payments, alerts, trial status, and business
                 activity from one place.
               </p>
+
+              <p className="mt-3 text-sm text-zinc-500">
+                Logged in as: {currentUser.email || "Account"}
+              </p>
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row">
-              <Link
-                href="/elite-barber-studio"
-                className="rounded-full border border-white/10 px-6 py-3 text-center font-bold hover:bg-white/10"
-              >
-                View Booking Page
-              </Link>
+              {selectedBusiness && (
+                <Link
+                  href={`/${selectedBusiness.slug}`}
+                  className="rounded-full border border-white/10 px-6 py-3 text-center font-bold hover:bg-white/10"
+                >
+                  View Booking Page
+                </Link>
+              )}
 
               <Link
                 href="/dashboard/services"
@@ -161,286 +343,360 @@ export default async function DashboardPage() {
             </div>
           </div>
 
-          {!business && (
+          {error && (
             <div className="mt-8 rounded-3xl border border-red-400/30 bg-red-500/10 p-6">
-              <h2 className="text-2xl font-bold text-red-200">
-                Business not found
-              </h2>
-              <p className="mt-2 text-sm text-zinc-300">
-                The dashboard could not find Elite Barber Studio in Supabase.
-                Check your businesses table and make sure the slug is
-                elite-barber-studio.
-              </p>
+              <h2 className="text-2xl font-bold text-red-200">Dashboard error</h2>
+              <p className="mt-2 text-sm text-zinc-300">{error}</p>
             </div>
           )}
 
-          <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <StatCard
-              label="Upcoming appointments"
-              value={String(upcomingAppointments.length)}
-              note="Active bookings"
-            />
-            <StatCard
-              label="Payment follow-ups"
-              value={String(unpaidAppointments.length)}
-              note="Deposits or payments due"
-            />
-            <StatCard
-              label="Unread alerts"
-              value={String(unreadNotifications.length)}
-              note="New activity"
-            />
-            <StatCard
-              label="Potential revenue"
-              value={`$${totalPotentialBalance.toFixed(0)}`}
-              note="Based on booked services"
-            />
-          </div>
-
-          <div className="mt-8 grid gap-6 xl:grid-cols-3">
-            <div className="space-y-6 xl:col-span-2">
-              <div className="rounded-3xl border border-purple-400/30 bg-purple-500/10 p-6">
-                <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
-                  <div>
-                    <p className="text-sm font-bold uppercase tracking-widest text-purple-300">
-                      Launch plan
-                    </p>
-                    <h2 className="mt-2 text-3xl font-black">
-                      14-day free trial, then $9.99/month
-                    </h2>
-                    <p className="mt-2 text-sm text-zinc-300">
-                      Flat launch pricing. No complicated tiers for now.
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-white/10 bg-black p-5 text-left md:text-right">
-                    <p className="text-sm text-zinc-500">Trial status</p>
-                    <p className="mt-2 text-3xl font-black text-purple-300">
-                      {business?.trial_days_left ?? 14} days
-                    </p>
-                    <p className="mt-1 text-xs text-zinc-500">
-                      remaining in trial
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 grid gap-3 md:grid-cols-3">
-                  <PlanItem title="Flat price" value="$9.99/month" />
-                  <PlanItem title="Team access" value="Up to 5 team members" />
-                  <PlanItem title="Included" value="Bookings + payments" />
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
-                  <div>
-                    <h2 className="text-2xl font-bold">
-                      Recent Appointment Activity
-                    </h2>
-                    <p className="mt-1 text-sm text-zinc-400">
-                      New customer bookings will appear here after they book from
-                      the public booking page.
-                    </p>
-                  </div>
-
-                  <Link
-                    href="/dashboard/appointments"
-                    className="rounded-full border border-white/10 px-5 py-3 text-center text-sm font-bold hover:bg-white/10"
-                  >
-                    View All
-                  </Link>
-                </div>
-
-                <div className="mt-5 space-y-4">
-                  {appointments.length > 0 ? (
-                    appointments.map((appointment) => {
-                      const service = appointment.service_id
-                        ? serviceMap.get(appointment.service_id)
-                        : null;
-
-                      const teamMember = appointment.team_member_id
-                        ? teamMap.get(appointment.team_member_id)
-                        : null;
-
-                      return (
-                        <div
-                          key={appointment.id}
-                          className="rounded-2xl border border-white/10 bg-black p-5"
-                        >
-                          <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
-                            <div>
-                              <div className="flex flex-wrap items-center gap-3">
-                                <h3 className="text-xl font-bold">
-                                  {service?.name || "Appointment"}
-                                </h3>
-                                <span className={statusClass(appointment.status)}>
-                                  {appointment.status || "Upcoming"}
-                                </span>
-                              </div>
-
-                              <p className="mt-2 text-sm text-zinc-400">
-                                Customer: {appointment.customer_name}
-                              </p>
-
-                              <p className="mt-1 text-sm text-zinc-500">
-                                {appointment.appointment_date || "No date"} •{" "}
-                                {appointment.appointment_time || "No time"}
-                              </p>
-
-                              <p className="mt-1 text-sm text-zinc-500">
-                                Team: {teamMember?.name || "Any Available"}
-                              </p>
-                            </div>
-
-                            <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:min-w-56">
-                              <p className={paymentClass(appointment.payment_status)}>
-                                {appointment.payment_status || "Pay in person"}
-                              </p>
-
-                              <p className="mt-2 text-sm text-zinc-400">
-                                {appointment.payment_detail ||
-                                  "Payment details set by service rules."}
-                              </p>
-
-                              {appointment.balance && (
-                                <p className="mt-2 text-sm font-bold text-purple-300">
-                                  Balance: {appointment.balance}
-                                </p>
-                              )}
-                            </div>
-                          </div>
-
-                          {appointment.notes && (
-                            <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
-                              <p className="text-xs text-zinc-500">Notes</p>
-                              <p className="mt-1 whitespace-pre-line text-sm text-zinc-300">
-                                {appointment.notes}
-                              </p>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })
-                  ) : (
-                    <div className="rounded-2xl border border-white/10 bg-black p-6">
-                      <h3 className="text-xl font-bold">
-                        No appointments yet
-                      </h3>
-                      <p className="mt-2 text-sm text-zinc-400">
-                        Book a test appointment from the public booking page and
-                        it should appear here.
-                      </p>
-
-                      <Link
-                        href="/elite-barber-studio"
-                        className="mt-5 inline-flex rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400"
-                      >
-                        Book Test Appointment
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              </div>
+          {loading ? (
+            <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+              <p className="text-zinc-300">Loading your business...</p>
             </div>
+          ) : businesses.length === 0 ? (
+            <div className="mt-8 rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-6">
+              <h2 className="text-2xl font-bold text-yellow-200">
+                No business connected yet
+              </h2>
 
-            <div className="space-y-6">
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                <h2 className="text-xl font-bold">Notifications</h2>
-                <p className="mt-2 text-sm text-zinc-400">
-                  New bookings, deposits, cancellations, and reschedules will
-                  show here.
-                </p>
+              <p className="mt-2 text-sm text-zinc-300">
+                Create your business profile so your dashboard can show services,
+                appointments, alerts, and booking activity.
+              </p>
 
-                <div className="mt-5 space-y-3">
-                  {notifications.length > 0 ? (
-                    notifications.map((notification) => (
-                      <div
-                        key={notification.id}
-                        className="rounded-2xl border border-white/10 bg-black p-4"
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <p className="font-bold">{notification.title}</p>
-                            <p className="mt-1 text-sm text-zinc-400">
-                              {notification.message}
-                            </p>
-                          </div>
+              <Link
+                href="/signup/business"
+                className="mt-5 inline-flex rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400"
+              >
+                Create Business
+              </Link>
+            </div>
+          ) : (
+            <>
+              <div className="mt-8 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                <label className="text-sm font-semibold text-zinc-300">
+                  Business
+                </label>
 
-                          {!notification.read && (
-                            <span className="rounded-full bg-purple-500 px-2 py-1 text-xs font-bold">
-                              New
-                            </span>
-                          )}
-                        </div>
+                <select
+                  value={selectedBusinessId}
+                  onChange={(event) => setSelectedBusinessId(event.target.value)}
+                  className="mt-2 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-sm outline-none"
+                >
+                  {businesses.map((business) => (
+                    <option key={business.id} value={business.id}>
+                      {business.name} — /{business.slug}
+                    </option>
+                  ))}
+                </select>
 
-                        <p className="mt-3 text-xs text-zinc-600">
-                          {formatDateTime(notification.created_at)}
+                {selectedBusiness && (
+                  <p className="mt-3 text-sm text-purple-300">
+                    Public page: appointeazebooking.com/{selectedBusiness.slug}
+                  </p>
+                )}
+
+                {dashboardLoading && (
+                  <p className="mt-3 text-sm text-zinc-500">
+                    Refreshing dashboard data...
+                  </p>
+                )}
+              </div>
+
+              <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  label="Upcoming appointments"
+                  value={String(upcomingAppointments.length)}
+                  note="Active bookings"
+                />
+                <StatCard
+                  label="Payment follow-ups"
+                  value={String(unpaidAppointments.length)}
+                  note="Deposits or payments due"
+                />
+                <StatCard
+                  label="Unread alerts"
+                  value={String(unreadNotifications.length)}
+                  note="New activity"
+                />
+                <StatCard
+                  label="Potential revenue"
+                  value={`$${totalPotentialBalance.toFixed(0)}`}
+                  note="Based on booked services"
+                />
+              </div>
+
+              <div className="mt-8 grid gap-6 xl:grid-cols-3">
+                <div className="space-y-6 xl:col-span-2">
+                  <div className="rounded-3xl border border-purple-400/30 bg-purple-500/10 p-6">
+                    <div className="flex flex-col justify-between gap-4 md:flex-row md:items-center">
+                      <div>
+                        <p className="text-sm font-bold uppercase tracking-widest text-purple-300">
+                          Launch plan
+                        </p>
+                        <h2 className="mt-2 text-3xl font-black">
+                          14-day free trial, then $9.99/month
+                        </h2>
+                        <p className="mt-2 text-sm text-zinc-300">
+                          Flat launch pricing. No complicated tiers for now.
                         </p>
                       </div>
-                    ))
-                  ) : (
-                    <div className="rounded-2xl border border-white/10 bg-black p-4">
-                      <p className="text-sm text-zinc-400">
-                        No notifications yet.
-                      </p>
+
+                      <div className="rounded-2xl border border-white/10 bg-black p-5 text-left md:text-right">
+                        <p className="text-sm text-zinc-500">Trial status</p>
+                        <p className="mt-2 text-3xl font-black text-purple-300">
+                          {selectedBusiness?.trial_days_left ?? 14} days
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          remaining in trial
+                        </p>
+                      </div>
                     </div>
-                  )}
+
+                    <div className="mt-5 grid gap-3 md:grid-cols-3">
+                      <PlanItem title="Flat price" value="$9.99/month" />
+                      <PlanItem
+                        title="Team access"
+                        value={`Up to ${
+                          selectedBusiness?.team_login_limit ?? 5
+                        } team members`}
+                      />
+                      <PlanItem title="Included" value="Bookings + payments" />
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                    <div className="flex flex-col justify-between gap-3 md:flex-row md:items-center">
+                      <div>
+                        <h2 className="text-2xl font-bold">
+                          Recent Appointment Activity
+                        </h2>
+                        <p className="mt-1 text-sm text-zinc-400">
+                          New customer bookings will appear here after they book
+                          from the public booking page.
+                        </p>
+                      </div>
+
+                      <Link
+                        href="/dashboard/appointments"
+                        className="rounded-full border border-white/10 px-5 py-3 text-center text-sm font-bold hover:bg-white/10"
+                      >
+                        View All
+                      </Link>
+                    </div>
+
+                    <div className="mt-5 space-y-4">
+                      {appointments.length > 0 ? (
+                        appointments.map((appointment) => {
+                          const service = appointment.service_id
+                            ? serviceMap.get(appointment.service_id)
+                            : null;
+
+                          const teamMember = appointment.team_member_id
+                            ? teamMap.get(appointment.team_member_id)
+                            : null;
+
+                          return (
+                            <div
+                              key={appointment.id}
+                              className="rounded-2xl border border-white/10 bg-black p-5"
+                            >
+                              <div className="flex flex-col justify-between gap-4 md:flex-row md:items-start">
+                                <div>
+                                  <div className="flex flex-wrap items-center gap-3">
+                                    <h3 className="text-xl font-bold">
+                                      {service?.name || "Appointment"}
+                                    </h3>
+                                    <span
+                                      className={statusClass(appointment.status)}
+                                    >
+                                      {appointment.status || "Upcoming"}
+                                    </span>
+                                  </div>
+
+                                  <p className="mt-2 text-sm text-zinc-400">
+                                    Customer: {appointment.customer_name}
+                                  </p>
+
+                                  <p className="mt-1 text-sm text-zinc-500">
+                                    {appointment.appointment_date || "No date"} •{" "}
+                                    {appointment.appointment_time || "No time"}
+                                  </p>
+
+                                  <p className="mt-1 text-sm text-zinc-500">
+                                    Team: {teamMember?.name || "Any Available"}
+                                  </p>
+                                </div>
+
+                                <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 md:min-w-56">
+                                  <p
+                                    className={paymentClass(
+                                      appointment.payment_status
+                                    )}
+                                  >
+                                    {appointment.payment_status ||
+                                      "Pay in person"}
+                                  </p>
+
+                                  <p className="mt-2 text-sm text-zinc-400">
+                                    {appointment.payment_detail ||
+                                      "Payment details set by service rules."}
+                                  </p>
+
+                                  {appointment.balance && (
+                                    <p className="mt-2 text-sm font-bold text-purple-300">
+                                      Balance: {appointment.balance}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+
+                              {appointment.notes && (
+                                <div className="mt-4 rounded-xl border border-white/10 bg-white/[0.03] p-4">
+                                  <p className="text-xs text-zinc-500">Notes</p>
+                                  <p className="mt-1 whitespace-pre-line text-sm text-zinc-300">
+                                    {appointment.notes}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })
+                      ) : (
+                        <div className="rounded-2xl border border-white/10 bg-black p-6">
+                          <h3 className="text-xl font-bold">
+                            No appointments yet
+                          </h3>
+                          <p className="mt-2 text-sm text-zinc-400">
+                            Book a test appointment from the public booking page
+                            and it should appear here.
+                          </p>
+
+                          {selectedBusiness && (
+                            <Link
+                              href={`/${selectedBusiness.slug}`}
+                              className="mt-5 inline-flex rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400"
+                            >
+                              Book Test Appointment
+                            </Link>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-6">
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                    <h2 className="text-xl font-bold">Notifications</h2>
+                    <p className="mt-2 text-sm text-zinc-400">
+                      New bookings, deposits, cancellations, and reschedules
+                      will show here.
+                    </p>
+
+                    <div className="mt-5 space-y-3">
+                      {notifications.length > 0 ? (
+                        notifications.map((notification) => (
+                          <div
+                            key={notification.id}
+                            className="rounded-2xl border border-white/10 bg-black p-4"
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-bold">
+                                  {notification.title}
+                                </p>
+                                <p className="mt-1 text-sm text-zinc-400">
+                                  {notification.message}
+                                </p>
+                              </div>
+
+                              {!notification.read && (
+                                <span className="rounded-full bg-purple-500 px-2 py-1 text-xs font-bold">
+                                  New
+                                </span>
+                              )}
+                            </div>
+
+                            <p className="mt-3 text-xs text-zinc-600">
+                              {formatDateTime(notification.created_at)}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-2xl border border-white/10 bg-black p-4">
+                          <p className="text-sm text-zinc-400">
+                            No notifications yet.
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                    <h2 className="text-xl font-bold">Quick Actions</h2>
+
+                    <div className="mt-5 space-y-3">
+                      <QuickLink
+                        href="/dashboard/services"
+                        label="Manage Services"
+                      />
+                      <QuickLink
+                        href="/dashboard/team"
+                        label="Manage Team Members"
+                      />
+                      <QuickLink
+                        href="/dashboard/appointments"
+                        label="View Appointments"
+                      />
+                      <QuickLink href="/dashboard/payments" label="Payments" />
+                      <QuickLink
+                        href="/dashboard/settings"
+                        label="Settings & Alerts"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                    <h2 className="text-xl font-bold">Setup Checklist</h2>
+
+                    <div className="mt-5 space-y-3 text-sm text-zinc-300">
+                      <ChecklistItem checked label="Business profile ready" />
+                      <ChecklistItem
+                        checked={services.length > 0}
+                        label="Services added"
+                      />
+                      <ChecklistItem
+                        checked={teamMembers.length > 0}
+                        label="Team members added"
+                      />
+                      <ChecklistItem checked label="Booking page live" />
+                      <ChecklistItem
+                        checked={notifications.length > 0}
+                        label="Alerts configured"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-purple-400/30 bg-purple-500/10 p-6">
+                    <h2 className="text-xl font-bold">Launch Pricing</h2>
+                    <p className="mt-2 text-sm text-zinc-300">
+                      AppointEaze launch pricing is simple: 14 days free, then
+                      $9.99/month.
+                    </p>
+
+                    <Link
+                      href="/dashboard/settings"
+                      className="mt-5 block rounded-xl bg-purple-500 py-3 text-center text-sm font-bold hover:bg-purple-400"
+                    >
+                      Manage Plan
+                    </Link>
+                  </div>
                 </div>
               </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                <h2 className="text-xl font-bold">Quick Actions</h2>
-
-                <div className="mt-5 space-y-3">
-                  <QuickLink
-                    href="/dashboard/services"
-                    label="Manage Services"
-                  />
-                  <QuickLink
-                    href="/dashboard/team"
-                    label="Manage Team Members"
-                  />
-                  <QuickLink
-                    href="/dashboard/appointments"
-                    label="View Appointments"
-                  />
-                  <QuickLink href="/dashboard/payments" label="Payments" />
-                  <QuickLink
-                    href="/dashboard/settings"
-                    label="Settings & Alerts"
-                  />
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                <h2 className="text-xl font-bold">Setup Checklist</h2>
-
-                <div className="mt-5 space-y-3 text-sm text-zinc-300">
-                  <ChecklistItem checked label="Business profile ready" />
-                  <ChecklistItem checked label="Services added" />
-                  <ChecklistItem checked label="Team members added" />
-                  <ChecklistItem checked label="Booking page live" />
-                  <ChecklistItem checked label="Alerts configured" />
-                  <ChecklistItem label="Fix service add/edit polish" />
-                </div>
-              </div>
-
-              <div className="rounded-3xl border border-purple-400/30 bg-purple-500/10 p-6">
-                <h2 className="text-xl font-bold">Launch Pricing</h2>
-                <p className="mt-2 text-sm text-zinc-300">
-                  AppointEaze launch pricing is simple: 14 days free, then
-                  $9.99/month.
-                </p>
-
-                <Link
-                  href="/dashboard/settings"
-                  className="mt-5 block rounded-xl bg-purple-500 py-3 text-center text-sm font-bold hover:bg-purple-400"
-                >
-                  Manage Plan
-                </Link>
-              </div>
-            </div>
-          </div>
+            </>
+          )}
         </section>
       </div>
     </main>
