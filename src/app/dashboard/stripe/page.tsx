@@ -14,35 +14,43 @@ type Business = {
   id: string;
   name: string;
   slug: string;
-  stripe_connected_account_id: string | null;
-  stripe_connect_onboarding_complete: boolean | null;
-  stripe_charges_enabled: boolean | null;
-  stripe_payouts_enabled: boolean | null;
-  stripe_connect_details_submitted: boolean | null;
-  stripe_connect_last_checked_at: string | null;
+  payment_provider_name: string | null;
+  default_payment_link: string | null;
+  deposit_payment_link: string | null;
+  full_payment_link: string | null;
+  payment_instructions: string | null;
 };
 
-type StripeStatus = {
-  connected: boolean;
-  onboardingComplete: boolean;
-  chargesEnabled: boolean;
-  payoutsEnabled: boolean;
-  detailsSubmitted: boolean;
-  accountId?: string;
-};
+function cleanUrl(value: string) {
+  const trimmed = value.trim();
 
-export default function DashboardStripePage() {
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
+
+export default function DashboardPaymentLinksPage() {
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
   const [checkingUser, setCheckingUser] = useState(true);
 
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [selectedBusinessId, setSelectedBusinessId] = useState("");
 
-  const [loading, setLoading] = useState(true);
-  const [startingConnect, setStartingConnect] = useState(false);
-  const [checkingStatus, setCheckingStatus] = useState(false);
+  const [providerName, setProviderName] = useState("");
+  const [defaultPaymentLink, setDefaultPaymentLink] = useState("");
+  const [depositPaymentLink, setDepositPaymentLink] = useState("");
+  const [fullPaymentLink, setFullPaymentLink] = useState("");
+  const [paymentInstructions, setPaymentInstructions] = useState("");
 
-  const [status, setStatus] = useState<StripeStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -62,9 +70,18 @@ export default function DashboardStripePage() {
         "appointeaze_selected_business_id",
         selectedBusinessId
       );
-      checkStripeStatus(selectedBusinessId);
     }
   }, [selectedBusinessId]);
+
+  useEffect(() => {
+    if (selectedBusiness) {
+      setProviderName(selectedBusiness.payment_provider_name || "");
+      setDefaultPaymentLink(selectedBusiness.default_payment_link || "");
+      setDepositPaymentLink(selectedBusiness.deposit_payment_link || "");
+      setFullPaymentLink(selectedBusiness.full_payment_link || "");
+      setPaymentInstructions(selectedBusiness.payment_instructions || "");
+    }
+  }, [selectedBusiness]);
 
   async function loadCurrentUserAndBusinesses() {
     setCheckingUser(true);
@@ -91,7 +108,7 @@ export default function DashboardStripePage() {
     const { data, error: businessError } = await supabase
       .from("businesses")
       .select(
-        "id, name, slug, stripe_connected_account_id, stripe_connect_onboarding_complete, stripe_charges_enabled, stripe_payouts_enabled, stripe_connect_details_submitted, stripe_connect_last_checked_at"
+        "id, name, slug, payment_provider_name, default_payment_link, deposit_payment_link, full_payment_link, payment_instructions"
       )
       .eq("owner_id", user.id)
       .order("created_at", { ascending: false });
@@ -123,105 +140,43 @@ export default function DashboardStripePage() {
     setLoading(false);
   }
 
-  async function getAccessToken() {
-    const { data } = await supabase.auth.getSession();
-    return data.session?.access_token || "";
-  }
-
-  async function startStripeConnect() {
-    setStartingConnect(true);
+  async function savePaymentLinks() {
+    setSaving(true);
     setError("");
     setMessage("");
 
     if (!selectedBusiness) {
       setError("Choose a business first.");
-      setStartingConnect(false);
+      setSaving(false);
       return;
     }
 
-    const token = await getAccessToken();
+    const { error: updateError } = await supabase
+      .from("businesses")
+      .update({
+        payment_provider_name: providerName.trim() || null,
+        default_payment_link: defaultPaymentLink.trim()
+          ? cleanUrl(defaultPaymentLink)
+          : null,
+        deposit_payment_link: depositPaymentLink.trim()
+          ? cleanUrl(depositPaymentLink)
+          : null,
+        full_payment_link: fullPaymentLink.trim()
+          ? cleanUrl(fullPaymentLink)
+          : null,
+        payment_instructions: paymentInstructions.trim() || null,
+      })
+      .eq("id", selectedBusiness.id);
 
-    if (!token) {
-      setError("Please log in again.");
-      setStartingConnect(false);
+    if (updateError) {
+      setError(updateError.message || "Could not save payment links.");
+      setSaving(false);
       return;
     }
 
-    const response = await fetch("/api/stripe/connect/create-account", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        businessId: selectedBusiness.id,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      setError(data.error || "Could not start Stripe onboarding.");
-      setStartingConnect(false);
-      return;
-    }
-
-    if (!data.url) {
-      setError("Stripe did not return an onboarding URL.");
-      setStartingConnect(false);
-      return;
-    }
-
-    window.location.href = data.url;
-  }
-
-  async function checkStripeStatus(businessIdOverride?: string) {
-    setCheckingStatus(true);
-    setError("");
-    setMessage("");
-
-    const businessId = businessIdOverride || selectedBusiness?.id;
-
-    if (!businessId) {
-      setError("Choose a business first.");
-      setCheckingStatus(false);
-      return;
-    }
-
-    const token = await getAccessToken();
-
-    if (!token) {
-      setError("Please log in again.");
-      setCheckingStatus(false);
-      return;
-    }
-
-    const response = await fetch("/api/stripe/connect/status", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
-      body: JSON.stringify({
-        businessId,
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      setError(data.error || "Could not check Stripe status.");
-      setCheckingStatus(false);
-      return;
-    }
-
-    setStatus(data as StripeStatus);
-
-    if (data.onboardingComplete) {
-      setMessage("Stripe account is connected and ready for online payments.");
-    }
-
-    setCheckingStatus(false);
+    setMessage("Payment links saved.");
+    setSaving(false);
+    await loadCurrentUserAndBusinesses();
   }
 
   if (checkingUser) {
@@ -253,7 +208,7 @@ export default function DashboardStripePage() {
               </h1>
 
               <p className="mt-2 text-zinc-300">
-                Please log in before connecting Stripe.
+                Please log in before managing payment links.
               </p>
 
               <Link
@@ -279,12 +234,13 @@ export default function DashboardStripePage() {
             <div>
               <p className="text-sm text-purple-300">Dashboard / Payments</p>
 
-              <h1 className="text-4xl font-black">Stripe Connect</h1>
+              <h1 className="text-4xl font-black">Payment Links</h1>
 
               <p className="mt-2 max-w-3xl text-zinc-400">
-                Connect the business’s own Stripe account so customer online
-                payments can be routed to the business. Stripe handles the
-                onboarding and verification process.
+                Add outside payment links for this business. Customers can click
+                the link to pay through Stripe, Square, PayPal, Venmo, Cash App,
+                or any outside payment page. AppointEaze does not process the
+                payment automatically.
               </p>
 
               <p className="mt-3 text-sm text-zinc-500">
@@ -302,14 +258,14 @@ export default function DashboardStripePage() {
 
           {error && (
             <div className="mt-8 rounded-3xl border border-red-400/30 bg-red-500/10 p-6">
-              <h2 className="text-2xl font-bold text-red-200">Stripe error</h2>
+              <h2 className="text-2xl font-bold text-red-200">Payment error</h2>
               <p className="mt-2 text-sm text-zinc-300">{error}</p>
             </div>
           )}
 
           {message && (
             <div className="mt-8 rounded-3xl border border-green-400/30 bg-green-500/10 p-6">
-              <h2 className="text-2xl font-bold text-green-200">Status</h2>
+              <h2 className="text-2xl font-bold text-green-200">Saved</h2>
               <p className="mt-2 text-sm text-zinc-300">{message}</p>
             </div>
           )}
@@ -325,7 +281,7 @@ export default function DashboardStripePage() {
               </h2>
 
               <p className="mt-2 text-sm text-zinc-300">
-                Create a business before connecting Stripe.
+                Create a business before adding payment links.
               </p>
 
               <Link
@@ -361,115 +317,121 @@ export default function DashboardStripePage() {
                 )}
               </div>
 
-              <div className="mt-8 grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+              <div className="mt-8 grid gap-6 xl:grid-cols-[1fr_380px]">
                 <div className="rounded-3xl border border-purple-400/30 bg-purple-500/10 p-6">
-                  <h2 className="text-2xl font-black">Connect Stripe</h2>
+                  <h2 className="text-2xl font-black">Business Payment Setup</h2>
 
                   <p className="mt-3 text-sm leading-6 text-zinc-300">
-                    The business owner will be redirected to Stripe to complete
-                    onboarding. AppointEaze will store only the connected
-                    account ID and connection status.
+                    These links are shown to customers when payment is required.
+                    The business is responsible for checking the outside
+                    payment system and marking the appointment paid manually.
                   </p>
 
-                  <button
-                    type="button"
-                    onClick={startStripeConnect}
-                    disabled={startingConnect || !selectedBusiness}
-                    className="mt-6 w-full rounded-xl bg-purple-500 py-4 font-black hover:bg-purple-400 disabled:opacity-60"
-                  >
-                    {startingConnect
-                      ? "Opening Stripe..."
-                      : selectedBusiness?.stripe_connected_account_id
-                      ? "Continue Stripe Onboarding"
-                      : "Connect Stripe Account"}
-                  </button>
+                  <div className="mt-6 grid gap-5">
+                    <Field
+                      label="Payment provider name"
+                      value={providerName}
+                      onChange={setProviderName}
+                      placeholder="Stripe, Square, Venmo, PayPal, Cash App, etc."
+                    />
 
-                  <button
-                    type="button"
-                    onClick={() => checkStripeStatus()}
-                    disabled={checkingStatus || !selectedBusiness}
-                    className="mt-3 w-full rounded-xl border border-white/10 py-4 font-black hover:bg-white/10 disabled:opacity-60"
-                  >
-                    {checkingStatus ? "Checking..." : "Refresh Stripe Status"}
-                  </button>
+                    <Field
+                      label="Default payment link"
+                      value={defaultPaymentLink}
+                      onChange={setDefaultPaymentLink}
+                      placeholder="https://buy.stripe.com/..."
+                    />
+
+                    <Field
+                      label="Deposit payment link"
+                      value={depositPaymentLink}
+                      onChange={setDepositPaymentLink}
+                      placeholder="Link used when deposits are required"
+                    />
+
+                    <Field
+                      label="Full payment link"
+                      value={fullPaymentLink}
+                      onChange={setFullPaymentLink}
+                      placeholder="Link used when full payment is required"
+                    />
+
+                    <div>
+                      <label className="text-sm font-semibold text-zinc-300">
+                        Payment instructions
+                      </label>
+
+                      <textarea
+                        value={paymentInstructions}
+                        onChange={(event) =>
+                          setPaymentInstructions(event.target.value)
+                        }
+                        placeholder="Example: Please include your name and appointment date when paying. Payment is verified manually by the business."
+                        className="mt-2 h-32 w-full resize-none rounded-xl border border-white/10 bg-black px-4 py-3 text-sm outline-none placeholder:text-zinc-600"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={savePaymentLinks}
+                      disabled={saving}
+                      className="rounded-xl bg-purple-500 py-4 text-lg font-black hover:bg-purple-400 disabled:opacity-60"
+                    >
+                      {saving ? "Saving..." : "Save Payment Links"}
+                    </button>
+                  </div>
                 </div>
 
-                <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                  <h2 className="text-2xl font-black">Connection Status</h2>
+                <div className="space-y-6">
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                    <h2 className="text-2xl font-black">How this works</h2>
 
-                  <div className="mt-6 grid gap-4 md:grid-cols-2">
-                    <StatusBox
-                      label="Connected account"
-                      value={
-                        status?.accountId ||
-                        selectedBusiness?.stripe_connected_account_id ||
-                        "Not connected"
-                      }
-                    />
-
-                    <StatusBox
-                      label="Onboarding"
-                      value={
-                        status?.onboardingComplete ||
-                        selectedBusiness?.stripe_connect_onboarding_complete
-                          ? "Complete"
-                          : "Not complete"
-                      }
-                    />
-
-                    <StatusBox
-                      label="Charges enabled"
-                      value={
-                        status?.chargesEnabled ||
-                        selectedBusiness?.stripe_charges_enabled
-                          ? "Yes"
-                          : "No"
-                      }
-                    />
-
-                    <StatusBox
-                      label="Payouts enabled"
-                      value={
-                        status?.payoutsEnabled ||
-                        selectedBusiness?.stripe_payouts_enabled
-                          ? "Yes"
-                          : "No"
-                      }
-                    />
-
-                    <StatusBox
-                      label="Details submitted"
-                      value={
-                        status?.detailsSubmitted ||
-                        selectedBusiness?.stripe_connect_details_submitted
-                          ? "Yes"
-                          : "No"
-                      }
-                    />
-
-                    <StatusBox
-                      label="Last checked"
-                      value={
-                        selectedBusiness?.stripe_connect_last_checked_at
-                          ? new Date(
-                              selectedBusiness.stripe_connect_last_checked_at
-                            ).toLocaleString()
-                          : "Not checked yet"
-                      }
-                    />
+                    <div className="mt-4 space-y-3 text-sm text-zinc-300">
+                      <p>1. Business adds its own payment link.</p>
+                      <p>2. Customer books appointment.</p>
+                      <p>3. Customer clicks Pay Here if payment is required.</p>
+                      <p>4. Payment happens outside AppointEaze.</p>
+                      <p>5. Business checks payment manually.</p>
+                      <p>6. Business marks appointment paid manually.</p>
+                    </div>
                   </div>
 
-                  <div className="mt-6 rounded-2xl border border-yellow-400/30 bg-yellow-500/10 p-4">
-                    <p className="text-sm font-bold text-yellow-200">
-                      Important
-                    </p>
+                  <div className="rounded-3xl border border-yellow-400/30 bg-yellow-500/10 p-6">
+                    <h2 className="text-xl font-bold text-yellow-200">
+                      Manual payment tracking
+                    </h2>
 
-                    <p className="mt-2 text-sm leading-6 text-zinc-300">
-                      Connecting Stripe does not automatically charge customers
-                      yet. The next step is adding customer payment checkout to
-                      the public booking flow for services that require deposits
-                      or full payment.
+                    <p className="mt-3 text-sm leading-6 text-zinc-300">
+                      AppointEaze will not know automatically if the customer
+                      paid through an outside link. The business must verify the
+                      payment and update the appointment status.
                     </p>
+                  </div>
+
+                  <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                    <h2 className="text-xl font-bold">Current saved links</h2>
+
+                    <div className="mt-4 space-y-3 text-sm">
+                      <InfoBox
+                        label="Provider"
+                        value={providerName || "Not set"}
+                      />
+
+                      <InfoBox
+                        label="Default link"
+                        value={defaultPaymentLink || "Not set"}
+                      />
+
+                      <InfoBox
+                        label="Deposit link"
+                        value={depositPaymentLink || "Not set"}
+                      />
+
+                      <InfoBox
+                        label="Full payment link"
+                        value={fullPaymentLink || "Not set"}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -481,7 +443,32 @@ export default function DashboardStripePage() {
   );
 }
 
-function StatusBox({ label, value }: { label: string; value: string }) {
+function Field({
+  label,
+  value,
+  placeholder,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <label className="text-sm font-semibold text-zinc-300">{label}</label>
+
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="mt-2 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-sm outline-none placeholder:text-zinc-600"
+      />
+    </div>
+  );
+}
+
+function InfoBox({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-black p-4">
       <p className="text-xs text-zinc-500">{label}</p>
