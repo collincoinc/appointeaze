@@ -491,6 +491,7 @@ export default function CustomerBookingPage() {
               </Link>
 
               <button
+                type="button"
                 onClick={() => setBookingSuccess(false)}
                 className="rounded-full border border-white/10 px-5 py-3 text-sm font-bold hover:bg-white/10"
               >
@@ -535,6 +536,7 @@ export default function CustomerBookingPage() {
 
               <div className="grid gap-3 md:grid-cols-2">
                 <button
+                  type="button"
                   onClick={() => setSelectedTeamMemberId("any")}
                   className={`rounded-2xl border p-4 text-left ${
                     selectedTeamMemberId === "any"
@@ -551,6 +553,7 @@ export default function CustomerBookingPage() {
                 {teamMembers.length > 0 ? (
                   teamMembers.map((person) => (
                     <button
+                      type="button"
                       key={person.id}
                       onClick={() => setSelectedTeamMemberId(person.id)}
                       className={`rounded-2xl border p-4 text-left ${
@@ -593,6 +596,7 @@ export default function CustomerBookingPage() {
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                 {dateOptions.map((date) => (
                   <button
+                    type="button"
                     key={date.value}
                     onClick={() => setSelectedDate(date.value)}
                     className={`rounded-2xl border p-4 text-left ${
@@ -623,6 +627,7 @@ export default function CustomerBookingPage() {
                 <div className="grid gap-3 sm:grid-cols-3">
                   {fallbackTimes.map((time) => (
                     <button
+                      type="button"
                       key={time}
                       onClick={() => setSelectedTime(time)}
                       className={`rounded-2xl border px-4 py-4 font-semibold ${
@@ -689,11 +694,17 @@ export default function CustomerBookingPage() {
                 </p>
 
                 <div className="mt-4 flex flex-col gap-3 sm:flex-row">
-                  <button className="rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400">
+                  <button
+                    type="button"
+                    className="rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400"
+                  >
                     Create account after booking
                   </button>
 
-                  <button className="rounded-full border border-white/10 px-5 py-3 text-sm font-bold hover:bg-white/10">
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/10 px-5 py-3 text-sm font-bold hover:bg-white/10"
+                  >
                     Continue as guest
                   </button>
                 </div>
@@ -723,8 +734,8 @@ export default function CustomerBookingPage() {
             </Card>
           </div>
 
-          <div className="space-y-8 lg:min-w-0">
-            <div className="rounded-3xl border border-purple-400/30 bg-purple-500/10 p-6 lg:sticky lg:top-6">
+          <div className="space-y-6 lg:min-w-0 lg:self-start">
+            <div className="rounded-3xl border border-purple-400/30 bg-purple-500/10 p-6">
               <h2 className="text-2xl font-black">Booking Summary</h2>
 
               <div className="mt-5 space-y-4 text-sm">
@@ -816,6 +827,7 @@ export default function CustomerBookingPage() {
               )}
 
               <button
+                type="button"
                 onClick={bookAppointment}
                 disabled={booking}
                 className="mt-5 w-full rounded-xl bg-purple-500 py-4 font-black hover:bg-purple-400 disabled:opacity-60"
@@ -953,9 +965,7 @@ function ServiceOption({
           </p>
 
           {service.description && (
-            <p className="mt-3 text-sm text-zinc-500">
-              {service.description}
-            </p>
+            <p className="mt-3 text-sm text-zinc-500">{service.description}</p>
           )}
 
           {service.customer_instructions && (
@@ -971,6 +981,7 @@ function ServiceOption({
           </p>
 
           <button
+            type="button"
             onClick={onChoose}
             className="mt-4 rounded-full border border-white/10 px-4 py-2 text-sm font-bold hover:bg-white/10"
           >
@@ -989,6 +1000,7 @@ function ServiceOption({
 
               return (
                 <button
+                  type="button"
                   key={`${service.id}-${addon.name}`}
                   onClick={() => onToggleAddOn(addon.name)}
                   className={`rounded-full border px-4 py-2 text-sm ${
