@@ -1,9 +1,14 @@
 "use client";
 
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
+
+type CurrentUser = {
+  id: string;
+  email: string | null;
+};
 
 function makeSlug(value: string) {
   return value
@@ -34,6 +39,9 @@ function BusinessSignupContent() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id") || "";
 
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [checkingUser, setCheckingUser] = useState(true);
+
   const [businessName, setBusinessName] = useState("");
   const [description, setDescription] = useState("");
   const [phone, setPhone] = useState("");
@@ -49,9 +57,49 @@ function BusinessSignupContent() {
     return customSlug ? makeSlug(customSlug) : makeSlug(businessName);
   }, [businessName, customSlug]);
 
+  useEffect(() => {
+    loadCurrentUser();
+
+    const pendingBusinessName = localStorage.getItem(
+      "appointeaze_pending_business_name"
+    );
+
+    if (pendingBusinessName) {
+      setBusinessName(pendingBusinessName);
+    }
+  }, []);
+
+  async function loadCurrentUser() {
+    setCheckingUser(true);
+
+    const { data, error: userError } = await supabase.auth.getUser();
+
+    if (userError || !data.user) {
+      setCurrentUser(null);
+      setCheckingUser(false);
+      return;
+    }
+
+    setCurrentUser({
+      id: data.user.id,
+      email: data.user.email || null,
+    });
+
+    if (data.user.email) {
+      setEmail(data.user.email);
+    }
+
+    setCheckingUser(false);
+  }
+
   async function createBusiness() {
     setError("");
     setCreatedSlug("");
+
+    if (!currentUser) {
+      setError("Please log in before creating a business.");
+      return;
+    }
 
     if (!businessName.trim()) {
       setError("Please enter your business name.");
@@ -82,10 +130,12 @@ function BusinessSignupContent() {
       slug: suggestedSlug,
       description: description.trim() || null,
       phone: phone.trim() || null,
-      email: email.trim() || null,
+      email: email.trim() || currentUser.email || null,
       address: address.trim() || null,
       logo_url: null,
       cover_photo_url: null,
+      owner_id: currentUser.id,
+      owner_email: currentUser.email,
       stripe_checkout_session_id: sessionId || null,
       plan_status: "trialing",
     });
@@ -97,8 +147,64 @@ function BusinessSignupContent() {
       return;
     }
 
+    localStorage.removeItem("appointeaze_pending_business_name");
+    localStorage.setItem("appointeaze_selected_business_slug", suggestedSlug);
+
     setSaving(false);
     setCreatedSlug(suggestedSlug);
+  }
+
+  if (checkingUser) {
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
+        <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8">
+          <p className="text-zinc-300">Checking account...</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!currentUser) {
+    const nextUrl = sessionId
+      ? `/signup/business?session_id=${encodeURIComponent(sessionId)}`
+      : "/signup/business";
+
+    return (
+      <main className="min-h-screen bg-black px-6 py-12 text-white">
+        <section className="mx-auto max-w-xl">
+          <div className="rounded-[2rem] border border-yellow-400/30 bg-yellow-500/10 p-8 md:p-10">
+            <img
+              src="/Logo.png"
+              alt="AppointEaze"
+              className="mb-8 h-14 w-auto"
+            />
+
+            <h1 className="text-4xl font-black">Log in first.</h1>
+
+            <p className="mt-4 text-zinc-300">
+              You need an AppointEaze owner account before creating a business
+              booking page.
+            </p>
+
+            <div className="mt-8 flex flex-col gap-4">
+              <Link
+                href={`/login?next=${encodeURIComponent(nextUrl)}`}
+                className="rounded-xl bg-purple-500 py-4 text-center text-lg font-black hover:bg-purple-400"
+              >
+                Log In
+              </Link>
+
+              <Link
+                href={`/signup?session_id=${encodeURIComponent(sessionId)}`}
+                className="rounded-xl border border-white/10 py-4 text-center text-lg font-black hover:bg-white/10"
+              >
+                Create Account
+              </Link>
+            </div>
+          </div>
+        </section>
+      </main>
+    );
   }
 
   if (createdSlug) {
@@ -137,10 +243,10 @@ function BusinessSignupContent() {
               </Link>
 
               <Link
-                href="/dashboard"
+                href="/dashboard/services"
                 className="rounded-full border border-white/10 px-8 py-4 text-center font-black hover:bg-white/10"
               >
-                Go to Dashboard
+                Add Services
               </Link>
             </div>
           </div>
@@ -153,10 +259,10 @@ function BusinessSignupContent() {
     <main className="min-h-screen bg-black px-6 py-12 text-white">
       <section className="mx-auto max-w-3xl">
         <Link
-          href="/"
+          href="/dashboard"
           className="mb-6 inline-flex rounded-full border border-white/10 px-5 py-3 text-sm font-bold hover:bg-white/10"
         >
-          ← Back to AppointEaze
+          ← Back to Dashboard
         </Link>
 
         <div className="rounded-[2rem] border border-purple-400/30 bg-purple-500/10 p-8 md:p-12">
@@ -171,8 +277,11 @@ function BusinessSignupContent() {
           </h1>
 
           <p className="mt-4 text-zinc-300">
-            Add your business details. You can change these later in the
-            dashboard.
+            This business will be connected to your logged-in owner account.
+          </p>
+
+          <p className="mt-3 rounded-2xl border border-white/10 bg-black p-4 text-sm text-purple-300">
+            Logged in as: {currentUser.email || "Account"}
           </p>
 
           <div className="mt-8 grid gap-5">
@@ -263,6 +372,7 @@ function Field({
   return (
     <div>
       <label className="text-sm font-semibold text-zinc-300">{label}</label>
+
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
