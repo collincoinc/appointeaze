@@ -32,6 +32,12 @@ type TeamMember = {
   can_view_assigned_appointments: boolean;
   show_on_booking_page: boolean;
   accepting_bookings: boolean;
+  auth_user_id?: string | null;
+  invite_token?: string | null;
+  invite_status?: string | null;
+  invite_sent_at?: string | null;
+  invite_accepted_at?: string | null;
+  team_access_role?: string | null;
   created_at?: string;
 };
 
@@ -48,7 +54,37 @@ function blankTeamMember(): TeamMember {
     can_view_assigned_appointments: true,
     show_on_booking_page: true,
     accepting_bookings: true,
+    auth_user_id: null,
+    invite_token: null,
+    invite_status: "not_invited",
+    invite_sent_at: null,
+    invite_accepted_at: null,
+    team_access_role: "team_member",
   };
+}
+
+function makeInviteToken() {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+function getInviteLink(token?: string | null) {
+  if (!token) {
+    return "";
+  }
+
+  if (typeof window === "undefined") {
+    return `/team-invite?token=${encodeURIComponent(token)}`;
+  }
+
+  return `${window.location.origin}/team-invite?token=${encodeURIComponent(
+    token
+  )}`;
 }
 
 export default function TeamPage() {
@@ -64,6 +100,9 @@ export default function TeamPage() {
   const [saving, setSaving] = useState(false);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [generatingInviteId, setGeneratingInviteId] = useState<string | null>(
+    null
+  );
 
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -87,7 +126,10 @@ export default function TeamPage() {
   useEffect(() => {
     if (selectedBusinessId) {
       loadTeamMembers(selectedBusinessId);
-      localStorage.setItem("appointeaze_selected_business_id", selectedBusinessId);
+      localStorage.setItem(
+        "appointeaze_selected_business_id",
+        selectedBusinessId
+      );
     }
   }, [selectedBusinessId]);
 
@@ -163,7 +205,7 @@ export default function TeamPage() {
     const { data: teamData, error: teamError } = await supabase
       .from("team_members")
       .select(
-        "id, business_id, name, role, email, phone, bio, photo_url, can_login, can_manage_schedule, can_view_assigned_appointments, show_on_booking_page, accepting_bookings, created_at"
+        "id, business_id, name, role, email, phone, bio, photo_url, can_login, can_manage_schedule, can_view_assigned_appointments, show_on_booking_page, accepting_bookings, auth_user_id, invite_token, invite_status, invite_sent_at, invite_accepted_at, team_access_role, created_at"
       )
       .eq("business_id", businessId)
       .order("created_at", { ascending: true });
@@ -191,6 +233,12 @@ export default function TeamPage() {
         person.can_view_assigned_appointments ?? true,
       show_on_booking_page: person.show_on_booking_page ?? true,
       accepting_bookings: person.accepting_bookings ?? true,
+      auth_user_id: person.auth_user_id || null,
+      invite_token: person.invite_token || null,
+      invite_status: person.invite_status || "not_invited",
+      invite_sent_at: person.invite_sent_at || null,
+      invite_accepted_at: person.invite_accepted_at || null,
+      team_access_role: person.team_access_role || "team_member",
       created_at: person.created_at,
     }));
 
@@ -232,6 +280,12 @@ export default function TeamPage() {
         person.can_view_assigned_appointments ?? true,
       show_on_booking_page: person.show_on_booking_page ?? true,
       accepting_bookings: person.accepting_bookings ?? true,
+      auth_user_id: person.auth_user_id || null,
+      invite_token: person.invite_token || null,
+      invite_status: person.invite_status || "not_invited",
+      invite_sent_at: person.invite_sent_at || null,
+      invite_accepted_at: person.invite_accepted_at || null,
+      team_access_role: person.team_access_role || "team_member",
       created_at: person.created_at,
     });
 
@@ -337,6 +391,7 @@ export default function TeamPage() {
       can_view_assigned_appointments: draft.can_view_assigned_appointments,
       show_on_booking_page: draft.show_on_booking_page,
       accepting_bookings: draft.accepting_bookings,
+      team_access_role: draft.team_access_role || "team_member",
     };
 
     if (editingId) {
@@ -369,6 +424,111 @@ export default function TeamPage() {
     setMessage(editingId ? "Team member updated." : "Team member created.");
     setSaving(false);
     closePanel();
+  }
+
+  async function generateInviteLink(person: TeamMember) {
+    setError("");
+    setMessage("");
+
+    if (!person.id || !selectedBusiness) {
+      setError("Please choose a business first.");
+      return;
+    }
+
+    if (!person.email.trim()) {
+      setError("Add an email to this team member before generating an invite.");
+      return;
+    }
+
+    setGeneratingInviteId(person.id);
+
+    const token = person.invite_token || makeInviteToken();
+
+    const { error: updateError } = await supabase
+      .from("team_members")
+      .update({
+        invite_token: token,
+        invite_status: "pending",
+        invite_sent_at: new Date().toISOString(),
+        can_login: true,
+      })
+      .eq("id", person.id)
+      .eq("business_id", selectedBusiness.id);
+
+    if (updateError) {
+      console.error("Invite generate error:", updateError);
+      setError(updateError.message || "Could not generate invite link.");
+      setGeneratingInviteId(null);
+      return;
+    }
+
+    await loadTeamMembers(selectedBusiness.id);
+
+    const link = getInviteLink(token);
+
+    try {
+      await navigator.clipboard.writeText(link);
+      setMessage(`Invite link copied for ${person.name}.`);
+    } catch {
+      setMessage(`Invite link created for ${person.name}: ${link}`);
+    }
+
+    setGeneratingInviteId(null);
+  }
+
+  async function copyInviteLink(person: TeamMember) {
+    setError("");
+    setMessage("");
+
+    if (!person.invite_token) {
+      setError("Generate an invite link first.");
+      return;
+    }
+
+    const link = getInviteLink(person.invite_token);
+
+    try {
+      await navigator.clipboard.writeText(link);
+      setMessage(`Invite link copied for ${person.name}.`);
+    } catch {
+      setMessage(`Invite link: ${link}`);
+    }
+  }
+
+  async function revokeInvite(person: TeamMember) {
+    setError("");
+    setMessage("");
+
+    if (!person.id || !selectedBusiness) {
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Revoke invite link for ${person.name}? This will not delete the team member.`
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    const { error: updateError } = await supabase
+      .from("team_members")
+      .update({
+        invite_token: null,
+        invite_status: "not_invited",
+        invite_sent_at: null,
+      })
+      .eq("id", person.id)
+      .eq("business_id", selectedBusiness.id);
+
+    if (updateError) {
+      console.error("Invite revoke error:", updateError);
+      setError(updateError.message || "Could not revoke invite.");
+      return;
+    }
+
+    await loadTeamMembers(selectedBusiness.id);
+    setMessage(`Invite revoked for ${person.name}.`);
   }
 
   async function deleteTeamMember(person: TeamMember) {
@@ -473,6 +633,14 @@ export default function TeamPage() {
     (person) => person.can_login
   );
 
+  const acceptedInviteMembers = teamMembers.filter(
+    (person) => person.invite_status === "accepted"
+  );
+
+  const pendingInviteMembers = teamMembers.filter(
+    (person) => person.invite_status === "pending"
+  );
+
   const teamLimit = selectedBusiness?.team_login_limit ?? 5;
 
   if (checkingUser) {
@@ -534,7 +702,7 @@ export default function TeamPage() {
 
               <p className="mt-2 max-w-3xl text-zinc-400">
                 Add staff, choose who appears on the booking page, control team
-                login permissions, and decide who can accept appointments.
+                login permissions, and invite added users to log in.
               </p>
 
               <p className="mt-3 text-sm text-zinc-500">
@@ -635,6 +803,17 @@ export default function TeamPage() {
                   value={String(acceptingTeamMembers.length)}
                 />
                 <StatCard
+                  label="Accepted logins"
+                  value={`${acceptedInviteMembers.length} accepted`}
+                />
+              </div>
+
+              <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                <StatCard
+                  label="Pending invites"
+                  value={String(pendingInviteMembers.length)}
+                />
+                <StatCard
                   label="Team logins"
                   value={`${loginEnabledTeamMembers.length} / ${teamLimit}`}
                 />
@@ -648,12 +827,17 @@ export default function TeamPage() {
                         key={person.id}
                         person={person}
                         deleting={deletingId === person.id}
+                        generatingInvite={generatingInviteId === person.id}
+                        inviteLink={getInviteLink(person.invite_token)}
                         onEdit={() => openEditPanel(person)}
                         onDelete={() => deleteTeamMember(person)}
                         onToggleAccepting={() =>
                           toggleAcceptingBookings(person)
                         }
                         onToggleVisible={() => toggleShowOnBookingPage(person)}
+                        onGenerateInvite={() => generateInviteLink(person)}
+                        onCopyInvite={() => copyInviteLink(person)}
+                        onRevokeInvite={() => revokeInvite(person)}
                       />
                     ))
                   ) : (
@@ -691,9 +875,8 @@ export default function TeamPage() {
                         </h2>
 
                         <p className="mt-2 text-sm text-zinc-300">
-                          Team members saved here can appear on the public
-                          booking page and can be assigned to appointments
-                          later.
+                          Add a team member email if you want to generate a
+                          login invite link.
                         </p>
                       </div>
 
@@ -723,7 +906,7 @@ export default function TeamPage() {
                         />
 
                         <Field
-                          label="Email optional"
+                          label="Email optional, required for login invite"
                           value={draft.email}
                           placeholder="marcus@example.com"
                           onChange={(value) => updateDraft("email", value)}
@@ -873,7 +1056,8 @@ export default function TeamPage() {
                       <h2 className="text-2xl font-bold">Team Panel</h2>
 
                       <p className="mt-2 text-sm text-zinc-300">
-                        Click + Add Team Member or Edit to manage staff details.
+                        Add team members, then generate invite links so they can
+                        create their own login.
                       </p>
 
                       <button
@@ -886,15 +1070,14 @@ export default function TeamPage() {
                     </div>
 
                     <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                      <h2 className="text-xl font-bold">Supabase Status</h2>
+                      <h2 className="text-xl font-bold">Invite Instructions</h2>
 
-                      <p className="mt-2 text-sm text-zinc-400">
-                        Team members loaded from your selected business:
-                      </p>
-
-                      <p className="mt-3 text-4xl font-black text-purple-300">
-                        {teamMembers.length}
-                      </p>
+                      <div className="mt-4 space-y-3 text-sm text-zinc-300">
+                        <p>1. Add a team member with an email.</p>
+                        <p>2. Click Generate Invite Link.</p>
+                        <p>3. Send the copied link to that person.</p>
+                        <p>4. They create/login and accept the invite.</p>
+                      </div>
                     </div>
 
                     <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
@@ -913,19 +1096,6 @@ export default function TeamPage() {
                         </p>
                       </div>
                     </div>
-
-                    <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
-                      <h2 className="text-xl font-bold">Team Rules</h2>
-
-                      <div className="mt-4 space-y-3 text-sm text-zinc-300">
-                        <p>✓ Show or hide staff on booking page</p>
-                        <p>✓ Allow or pause bookings per person</p>
-                        <p>✓ Team login permission</p>
-                        <p>✓ Schedule management permission</p>
-                        <p>✓ Assigned appointment visibility</p>
-                        <p>Later: staff-specific availability</p>
-                      </div>
-                    </div>
                   </div>
                 )}
               </div>
@@ -940,18 +1110,31 @@ export default function TeamPage() {
 function TeamMemberCard({
   person,
   deleting,
+  generatingInvite,
+  inviteLink,
   onEdit,
   onDelete,
   onToggleAccepting,
   onToggleVisible,
+  onGenerateInvite,
+  onCopyInvite,
+  onRevokeInvite,
 }: {
   person: TeamMember;
   deleting: boolean;
+  generatingInvite: boolean;
+  inviteLink: string;
   onEdit: () => void;
   onDelete: () => void;
   onToggleAccepting: () => void;
   onToggleVisible: () => void;
+  onGenerateInvite: () => void;
+  onCopyInvite: () => void;
+  onRevokeInvite: () => void;
 }) {
+  const inviteStatus = person.invite_status || "not_invited";
+  const accepted = inviteStatus === "accepted";
+
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
       <div className="flex flex-col gap-5 md:flex-row">
@@ -993,6 +1176,22 @@ function TeamMemberCard({
                   {person.show_on_booking_page
                     ? "Public"
                     : "Hidden from booking"}
+                </span>
+
+                <span
+                  className={
+                    accepted
+                      ? "rounded-full bg-green-500/15 px-3 py-1 text-xs font-semibold text-green-300"
+                      : inviteStatus === "pending"
+                      ? "rounded-full bg-yellow-500/15 px-3 py-1 text-xs font-semibold text-yellow-300"
+                      : "rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-zinc-400"
+                  }
+                >
+                  {accepted
+                    ? "Login accepted"
+                    : inviteStatus === "pending"
+                    ? "Invite pending"
+                    : "Not invited"}
                 </span>
               </div>
 
@@ -1068,6 +1267,67 @@ function TeamMemberCard({
                 ? "Hide From Booking Page"
                 : "Show On Booking Page"}
             </button>
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-purple-400/20 bg-purple-500/10 p-4">
+            <p className="text-sm font-bold text-purple-200">
+              Team Login Invite
+            </p>
+
+            {!person.email ? (
+              <p className="mt-2 text-sm text-zinc-400">
+                Add an email to generate a team login invite.
+              </p>
+            ) : (
+              <>
+                <p className="mt-2 text-sm text-zinc-400">
+                  Invite status: {inviteStatus.replace("_", " ")}
+                </p>
+
+                {inviteLink && (
+                  <input
+                    readOnly
+                    value={inviteLink}
+                    className="mt-3 w-full rounded-xl border border-white/10 bg-black px-4 py-3 text-xs text-zinc-300 outline-none"
+                  />
+                )}
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={onGenerateInvite}
+                    disabled={generatingInvite || accepted}
+                    className="rounded-full bg-purple-500 px-4 py-2 text-sm font-bold hover:bg-purple-400 disabled:opacity-50"
+                  >
+                    {generatingInvite
+                      ? "Generating..."
+                      : person.invite_token
+                      ? "Regenerate / Copy Invite"
+                      : "Generate Invite Link"}
+                  </button>
+
+                  {person.invite_token && (
+                    <button
+                      type="button"
+                      onClick={onCopyInvite}
+                      className="rounded-full border border-white/10 px-4 py-2 text-sm font-bold hover:bg-white/10"
+                    >
+                      Copy Link
+                    </button>
+                  )}
+
+                  {person.invite_token && !accepted && (
+                    <button
+                      type="button"
+                      onClick={onRevokeInvite}
+                      className="rounded-full border border-red-400/30 px-4 py-2 text-sm font-bold text-red-300 hover:bg-red-500/10"
+                    >
+                      Revoke Invite
+                    </button>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
