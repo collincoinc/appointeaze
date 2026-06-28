@@ -242,12 +242,12 @@ function BusinessSignupContent() {
                 View Booking Page
               </Link>
 
-              <Link
+              <a
                 href="/dashboard/services"
                 className="rounded-full border border-white/10 px-8 py-4 text-center font-black hover:bg-white/10"
               >
                 Add Services
-              </Link>
+              </a>
             </div>
           </div>
         </section>
