@@ -106,6 +106,15 @@ function LoginContent() {
               type="password"
             />
 
+            <div className="-mt-2 flex justify-end">
+              <Link
+                href="/forgot-password"
+                className="text-sm font-bold text-purple-300 hover:text-purple-200"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
             {error && (
               <p className="rounded-xl border border-red-400/30 bg-red-500/10 p-4 text-sm font-semibold text-red-200">
                 {error}
