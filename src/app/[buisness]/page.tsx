@@ -16,6 +16,11 @@ type Business = {
   address: string | null;
   logo_url: string | null;
   cover_photo_url: string | null;
+  payment_provider_name: string | null;
+  default_payment_link: string | null;
+  deposit_payment_link: string | null;
+  full_payment_link: string | null;
+  payment_instructions: string | null;
 };
 
 type ServiceAddOn = {
@@ -298,6 +303,10 @@ export default function CustomerBookingPage() {
 
     const paymentStatus = getAppointmentPaymentStatus(selectedService);
     const paymentDetail = getPaymentSummary(selectedService);
+    const externalPaymentLink = getExternalPaymentLink(
+      business,
+      selectedService
+    );
 
     const { data: appointmentData, error: appointmentError } = await supabase
       .from("appointments")
@@ -314,6 +323,8 @@ export default function CustomerBookingPage() {
         payment_status: paymentStatus,
         payment_detail: paymentDetail,
         balance: selectedService.price,
+        external_payment_link: externalPaymentLink || null,
+        payment_verified_manually: false,
         notes: combinedNotes || null,
       })
       .select("id")
@@ -481,6 +492,14 @@ export default function CustomerBookingPage() {
               Your appointment was saved. The business will see it in
               AppointEaze.
             </p>
+
+            {selectedService && (
+              <PaymentActionCard
+                business={business}
+                service={selectedService}
+                context="success"
+              />
+            )}
 
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <Link
@@ -808,6 +827,14 @@ export default function CustomerBookingPage() {
                 </p>
               </div>
 
+              {selectedService && (
+                <PaymentActionCard
+                  business={business}
+                  service={selectedService}
+                  context="summary"
+                />
+              )}
+
               {selectedService?.deposit_refund_status && (
                 <div className="mt-5 rounded-2xl border border-white/10 bg-black p-4">
                   <p className="text-sm font-semibold text-zinc-300">
@@ -849,6 +876,7 @@ export default function CustomerBookingPage() {
                 <p>• Reschedules may require business approval.</p>
                 <p>• Deposit rules depend on the service selected.</p>
                 <p>• Some deposits may be non-refundable.</p>
+                <p>• Outside payments are verified manually by the business.</p>
               </div>
             </div>
 
@@ -878,7 +906,11 @@ export default function CustomerBookingPage() {
                   <PolicyItem
                     label="Payment"
                     value={getPaymentSummary(selectedService)}
-                    description={selectedService.payment_instructions || null}
+                    description={
+                      selectedService.payment_instructions ||
+                      business.payment_instructions ||
+                      null
+                    }
                   />
                 </div>
               </div>
@@ -1024,6 +1056,77 @@ function ServiceOption({
   );
 }
 
+function PaymentActionCard({
+  business,
+  service,
+  context,
+}: {
+  business: Business;
+  service: Service;
+  context: "summary" | "success";
+}) {
+  const link = getExternalPaymentLink(business, service);
+  const requiresOutsideAttention = shouldShowPaymentAction(service);
+  const label = getPaymentButtonLabel(service);
+  const provider = business.payment_provider_name || "outside payment page";
+
+  if (!requiresOutsideAttention && !business.payment_instructions) {
+    return null;
+  }
+
+  return (
+    <div
+      className={`mt-5 rounded-2xl border p-4 ${
+        context === "success"
+          ? "border-green-400/30 bg-black/40"
+          : "border-yellow-400/30 bg-yellow-500/10"
+      }`}
+    >
+      <p className="text-sm font-semibold text-zinc-200">
+        {context === "success" ? "Payment next step" : "Payment option"}
+      </p>
+
+      <p className="mt-2 text-sm leading-6 text-zinc-300">
+        {getPaymentActionText(business, service)}
+      </p>
+
+      {business.payment_instructions && (
+        <p className="mt-3 rounded-xl border border-white/10 bg-black p-3 text-xs leading-5 text-zinc-400">
+          {business.payment_instructions}
+        </p>
+      )}
+
+      {service.payment_instructions && (
+        <p className="mt-3 rounded-xl border border-purple-400/20 bg-purple-500/10 p-3 text-xs leading-5 text-purple-100">
+          {service.payment_instructions}
+        </p>
+      )}
+
+      {link ? (
+        <a
+          href={link}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="mt-4 block rounded-xl bg-purple-500 px-5 py-3 text-center text-sm font-black hover:bg-purple-400"
+        >
+          {label}
+        </a>
+      ) : requiresOutsideAttention ? (
+        <div className="mt-4 rounded-xl border border-yellow-400/30 bg-yellow-500/10 p-3 text-xs leading-5 text-yellow-100">
+          This business has not added a payment link for this option yet. Please
+          follow the listed instructions or contact the business.
+        </div>
+      ) : null}
+
+      {link && (
+        <p className="mt-3 text-center text-xs text-zinc-500">
+          Payment opens on {provider}. The business verifies payment manually.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function Card({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-6">
@@ -1115,6 +1218,131 @@ function PolicyItem({
       )}
     </div>
   );
+}
+
+function normalizePaymentLink(value?: string | null) {
+  const trimmed = String(value || "").trim();
+
+  if (!trimmed) {
+    return "";
+  }
+
+  if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+
+  return `https://${trimmed}`;
+}
+
+function getExternalPaymentLink(business: Business, service?: Service | null) {
+  if (!service) {
+    return "";
+  }
+
+  const options = service.payment_options || [];
+
+  if (options.includes("Custom payment link — manual tracking")) {
+    return normalizePaymentLink(
+      service.custom_payment_link ||
+        business.default_payment_link ||
+        business.deposit_payment_link ||
+        business.full_payment_link
+    );
+  }
+
+  if (options.includes("Deposit required")) {
+    return normalizePaymentLink(
+      service.custom_payment_link ||
+        business.deposit_payment_link ||
+        business.default_payment_link
+    );
+  }
+
+  if (options.includes("Pay ahead in full")) {
+    return normalizePaymentLink(
+      service.custom_payment_link ||
+        business.full_payment_link ||
+        business.default_payment_link
+    );
+  }
+
+  if (options.includes("Cash deposit allowed — manual tracking")) {
+    return normalizePaymentLink(
+      service.custom_payment_link ||
+        business.deposit_payment_link ||
+        business.default_payment_link
+    );
+  }
+
+  return normalizePaymentLink(service.custom_payment_link || "");
+}
+
+function shouldShowPaymentAction(service?: Service | null) {
+  if (!service) {
+    return false;
+  }
+
+  const options = service.payment_options || [];
+
+  return (
+    options.includes("Deposit required") ||
+    options.includes("Pay ahead in full") ||
+    options.includes("Custom payment link — manual tracking") ||
+    options.includes("Cash deposit allowed — manual tracking")
+  );
+}
+
+function getPaymentButtonLabel(service?: Service | null) {
+  if (!service) {
+    return "Pay Here";
+  }
+
+  const options = service.payment_options || [];
+
+  if (options.includes("Deposit required")) {
+    return "Pay Deposit";
+  }
+
+  if (options.includes("Pay ahead in full")) {
+    return "Pay Now";
+  }
+
+  if (options.includes("Cash deposit allowed — manual tracking")) {
+    return "Pay / Deposit Here";
+  }
+
+  return "Pay Here";
+}
+
+function getPaymentActionText(business: Business, service?: Service | null) {
+  if (!service) {
+    return "Choose a service to see payment instructions.";
+  }
+
+  const options = service.payment_options || [];
+  const provider = business.payment_provider_name || "the business’s payment page";
+
+  if (options.includes("Deposit required")) {
+    return `This service requires a deposit. You can pay through ${provider}, and the business will verify it manually.`;
+  }
+
+  if (options.includes("Pay ahead in full")) {
+    return `This service allows or requires full payment ahead of time through ${provider}. The business verifies payment manually.`;
+  }
+
+  if (options.includes("Custom payment link — manual tracking")) {
+    return `This business uses an outside payment link for this service. Payment is verified manually by the business.`;
+  }
+
+  if (options.includes("Cash deposit allowed — manual tracking")) {
+    return `This service allows a manually tracked deposit. The business may accept cash or an outside payment link.`;
+  }
+
+  if (options.includes("Pay in person")) {
+    return "This service is set to pay in person.";
+  }
+
+  return "Payment details are set by the business.";
 }
 
 function getPaymentSummary(service?: Service | null) {
