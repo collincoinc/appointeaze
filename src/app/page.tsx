@@ -68,18 +68,22 @@ export default function HomePage() {
 
           <div className="flex items-center gap-3">
             <Link
-              href="/dashboard"
-              className="hidden rounded-full border border-white/10 px-5 py-3 text-sm font-bold hover:bg-white/10 sm:inline-flex"
+              href="/login"
+              className="rounded-full border border-white/10 px-5 py-3 text-sm font-bold hover:bg-white/10"
             >
-              View Dashboard
+              Log In
             </Link>
 
             <Link
               href="/elite-barber-studio"
-              className="rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400"
+              className="hidden rounded-full border border-white/10 px-5 py-3 text-sm font-bold hover:bg-white/10 sm:inline-flex"
             >
               View Demo
             </Link>
+
+            <StartTrialButton className="hidden rounded-full bg-purple-500 px-5 py-3 text-sm font-bold hover:bg-purple-400 disabled:opacity-60 sm:inline-flex">
+              Start Free Trial
+            </StartTrialButton>
           </div>
         </nav>
 
@@ -103,6 +107,13 @@ export default function HomePage() {
               <StartTrialButton className="rounded-full bg-purple-500 px-8 py-4 text-center font-black hover:bg-purple-400 disabled:opacity-60">
                 Start Free Trial
               </StartTrialButton>
+
+              <Link
+                href="/login"
+                className="rounded-full border border-purple-400/30 px-8 py-4 text-center font-black text-purple-200 hover:bg-purple-500/10"
+              >
+                Account Login
+              </Link>
 
               <Link
                 href="/elite-barber-studio"
@@ -276,9 +287,18 @@ export default function HomePage() {
               ))}
             </div>
 
-            <StartTrialButton className="mt-8 block w-full rounded-xl bg-purple-500 py-4 text-center text-lg font-black hover:bg-purple-400 disabled:opacity-60">
-              Start 14-Day Free Trial
-            </StartTrialButton>
+            <div className="mt-8 grid gap-4 sm:grid-cols-2">
+              <StartTrialButton className="block w-full rounded-xl bg-purple-500 py-4 text-center text-lg font-black hover:bg-purple-400 disabled:opacity-60">
+                Start 14-Day Free Trial
+              </StartTrialButton>
+
+              <Link
+                href="/login"
+                className="block w-full rounded-xl border border-white/10 py-4 text-center text-lg font-black hover:bg-white/10"
+              >
+                Log In
+              </Link>
+            </div>
 
             <p className="mt-4 text-center text-xs text-zinc-500">
               Later, AppointEaze may add higher plans for SMS alerts, multiple
@@ -304,6 +324,13 @@ export default function HomePage() {
             </StartTrialButton>
 
             <Link
+              href="/login"
+              className="rounded-full border border-purple-400/30 px-8 py-4 font-black text-purple-200 hover:bg-purple-500/10"
+            >
+              Account Login
+            </Link>
+
+            <Link
               href="/elite-barber-studio"
               className="rounded-full border border-white/10 px-8 py-4 font-black hover:bg-white/10"
             >
@@ -318,7 +345,18 @@ export default function HomePage() {
           <div className="flex items-center gap-3">
             <img src="/Logo.png" alt="AppointEaze" className="h-8 w-auto" />
           </div>
-          <p>14-day free trial • $9.99/month after trial</p>
+
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:gap-6">
+            <p>14-day free trial • $9.99/month after trial</p>
+
+            <Link href="/login" className="font-bold text-purple-300">
+              Account Login
+            </Link>
+
+            <Link href="/forgot-password" className="font-bold text-purple-300">
+              Forgot Password
+            </Link>
+          </div>
         </div>
       </footer>
     </main>
