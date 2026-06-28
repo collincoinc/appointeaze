@@ -5,53 +5,38 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "../lib/supabaseClient";
 
-export default function SignupPage() {
+export default function LoginPage() {
   return (
     <Suspense
       fallback={
         <main className="flex min-h-screen items-center justify-center bg-black px-6 text-white">
           <div className="rounded-3xl border border-white/10 bg-white/[0.03] p-8">
-            <p className="text-zinc-300">Loading signup...</p>
+            <p className="text-zinc-300">Loading login...</p>
           </div>
         </main>
       }
     >
-      <SignupContent />
+      <LoginContent />
     </Suspense>
   );
 }
 
-function SignupContent() {
+function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const checkoutSessionId = searchParams.get("session_id") || "";
+  const rawNext = searchParams.get("next") || "/dashboard";
+  const next = rawNext.startsWith("/") ? rawNext : "/dashboard";
 
-  const [businessName, setBusinessName] = useState("");
-  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
   const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
-  async function createAccount() {
+  async function logIn() {
     setLoading(true);
-    setMessage("");
     setError("");
-
-    if (!businessName.trim()) {
-      setError("Please enter your business name.");
-      setLoading(false);
-      return;
-    }
-
-    if (!fullName.trim()) {
-      setError("Please enter your name.");
-      setLoading(false);
-      return;
-    }
 
     if (!email.trim()) {
       setError("Please enter your email.");
@@ -60,60 +45,24 @@ function SignupContent() {
     }
 
     if (!password.trim()) {
-      setError("Please enter a password.");
+      setError("Please enter your password.");
       setLoading(false);
       return;
     }
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters.");
-      setLoading(false);
-      return;
-    }
-
-    const { data, error: signupError } = await supabase.auth.signUp({
+    const { error: loginError } = await supabase.auth.signInWithPassword({
       email: email.trim(),
       password,
-      options: {
-        data: {
-          full_name: fullName.trim(),
-          business_name: businessName.trim(),
-        },
-      },
     });
 
-    if (signupError) {
-      setError(signupError.message || "Could not create account.");
+    if (loginError) {
+      setError(loginError.message || "Could not log in.");
       setLoading(false);
       return;
     }
 
-    const user = data.user;
-
-    if (user) {
-      await supabase.from("profiles").upsert({
-        id: user.id,
-        email: email.trim(),
-        full_name: fullName.trim(),
-      });
-    }
-
-    localStorage.setItem("appointeaze_pending_business_name", businessName.trim());
-
-    setLoading(false);
-
-    if (data.session) {
-      const nextUrl = checkoutSessionId
-        ? `/signup/business?session_id=${encodeURIComponent(checkoutSessionId)}`
-        : "/signup/business";
-
-      router.push(nextUrl);
-      return;
-    }
-
-    setMessage(
-      "Account created. Check your email to confirm your account, then log in."
-    );
+    router.push(next);
+    router.refresh();
   }
 
   return (
@@ -133,28 +82,14 @@ function SignupContent() {
             className="mb-8 h-14 w-auto"
           />
 
-          <h1 className="text-4xl font-black">Create your account.</h1>
+          <h1 className="text-4xl font-black">Log in.</h1>
 
           <p className="mt-3 text-zinc-300">
-            Create your AppointEaze owner account so your dashboard, services,
-            appointments, team, and booking page belong to you.
+            Access your AppointEaze dashboard, services, appointments, team, and
+            booking page.
           </p>
 
           <div className="mt-8 grid gap-5">
-            <Field
-              label="Business name"
-              value={businessName}
-              onChange={setBusinessName}
-              placeholder="Elite Barber Studio"
-            />
-
-            <Field
-              label="Your name"
-              value={fullName}
-              onChange={setFullName}
-              placeholder="Your name"
-            />
-
             <Field
               label="Email"
               value={email}
@@ -167,7 +102,7 @@ function SignupContent() {
               label="Password"
               value={password}
               onChange={setPassword}
-              placeholder="At least 6 characters"
+              placeholder="Your password"
               type="password"
             />
 
@@ -177,29 +112,19 @@ function SignupContent() {
               </p>
             )}
 
-            {message && (
-              <p className="rounded-xl border border-green-400/30 bg-green-500/10 p-4 text-sm font-semibold text-green-200">
-                {message}
-              </p>
-            )}
-
             <button
-              onClick={createAccount}
+              onClick={logIn}
               disabled={loading}
               className="rounded-xl bg-purple-500 py-4 text-lg font-black hover:bg-purple-400 disabled:opacity-60"
             >
-              {loading ? "Creating Account..." : "Create Account"}
+              {loading ? "Logging In..." : "Log In"}
             </button>
           </div>
 
-          <p className="mt-6 text-center text-sm text-zinc-500">
-            14 days free • Then $9.99/month
-          </p>
-
-          <p className="mt-4 text-center text-sm text-zinc-400">
-            Already have an account?{" "}
-            <Link href="/login" className="font-bold text-purple-300">
-              Log in
+          <p className="mt-6 text-center text-sm text-zinc-400">
+            Need an account?{" "}
+            <Link href="/signup" className="font-bold text-purple-300">
+              Create one
             </Link>
           </p>
         </div>
